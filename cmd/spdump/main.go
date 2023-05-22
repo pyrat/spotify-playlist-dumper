@@ -4,7 +4,14 @@
 
 package main
 
-import "flag"
+import (
+	"flag"
+	"fmt"
+	"io/ioutil"
+
+	"github.com/pelletier/go-toml"
+	"github.com/pyrat/spd/internal/spotify"
+)
 
 func main() {
 	// implement the cli here
@@ -18,5 +25,37 @@ func main() {
 	// Access parsed values
 	user := *inputPtr
 	playlist := *playlistPtr
+
+	// Read the TOML file
+	tomlData, err := ioutil.ReadFile("config.toml")
+	if err != nil {
+		panic(err)
+	}
+
+	// Parse the TOML data
+	config, err := toml.Load(string(tomlData))
+	if err != nil {
+		panic(err)
+	}
+
+	// Get the Spotify client ID and secret
+	clientID := config.Get("spotify.client_id").(string)
+	clientSecret := config.Get("spotify.client_secret").(string)
+
+	sp, err := spotify.NewSpotify(clientID, clientSecret)
+	if err != nil {
+		panic(err)
+	}
+
+	// Get the user's playlists
+	playlists, err := sp.MyPlaylists()
+	if err != nil {
+		panic(err)
+	}
+
+	// Print the playlists
+	for _, playlist := range playlists {
+		fmt.Println(playlist.Name)
+	}
 
 }

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-redis/redis"
 	"github.com/opentracing/opentracing-go/log"
 )
 
@@ -312,17 +311,6 @@ func (o *Spotify) refreshSpotifyToken() (string, error) {
 	return spotTokenResp.AccessToken, nil
 }
 
-func (o *Spotify) getSearchResultsFromCache(query string) ([]byte, error) {
-	val, err := o.Cache.Get("spotify:search:" + query).Result()
-	if err == redis.Nil {
-		return []byte{}, nil
-	} else if err != nil {
-		log.Error("Error hitting redis for spotify token" + err.Error())
-		return []byte{}, err
-	}
-	return []byte(val), nil
-}
-
 // Search makes a call to the Spotify search endpoint returning a struct which implements
 // the TrackSearchResult interface.
 func (o *Spotify) Search(query string, market string) (SpotifyTrackSearchResult, error) {
@@ -552,6 +540,56 @@ func (o *Spotify) PlaylistFromID(ID string) (SpotifyPlaylist, error) {
 	}
 
 	return playlist, nil
+}
+
+// MyPlaylists hits the Spotify API to get the current user's playlists.
+func (o *Spotify) MyPlaylists() ([]SpotifyPlaylist, error) {
+	playlists := []SpotifyPlaylist{}
+
+	myPlaylistsURL := "https://api.spotify.com/v1/me/playlists/"
+
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+	req, err := http.NewRequest("GET", myPlaylistsURL, nil)
+	if err != nil {
+		log.Error("net/http error")
+		return playlist, err
+	}
+
+	// Always get the token before making the request
+	// to avoid making a request with an expired token.
+	token, err := o.getToken()
+	if err != nil {
+		log.Error("error getting token")
+		return playlists, err
+	}
+
+	req.Header.Add("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Error("Error making call to spotify error:", err)
+		return playlists, errors.New("error making call to spotify to get my playlists")
+	}
+
+	defer resp.Body.Close()
+	body, _ := ioutil.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		log.Error("Error making call to spotify", string(body[:]))
+		return playlists, errors.New("error making call to spotify to get my playlists")
+	}
+
+	// load the response into the required object,
+	err = json.Unmarshal(body, &playlists)
+	if err != nil {
+		log.Error("Invalid JSON response from Spotify", err)
+		return playlists, err
+	}
+
+	return playlists, nil
+
 }
 
 // ConvertToMusicAlbum converts a SpotifyAlbum struct to a MusicAlbum struct
