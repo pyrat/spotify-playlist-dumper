@@ -5,25 +5,24 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 
 	"github.com/pelletier/go-toml"
 	"github.com/pyrat/spd/internal/spotify"
+	flag "github.com/spf13/pflag"
 )
 
 func main() {
 	// implement the cli here
 	// Define flags
-	// userPtr := flag.String("user", "", "User to dump playlists for")
 	// playlistPtr := flag.String("playlist", "", "Playlist to dump")
+	var playlistPtr *string = flag.StringP("playlist", "p", "3rpdjX0UZGjjmk3A86FrU3", "playlist_id to dump")
 
 	// Parse command line arguments
-	// flag.Parse()
-
-	// Access parsed values
-	// user := *userPtr
-	// playlist := *playlistPtr
+	flag.Parse()
 
 	// Read the TOML file
 	tomlData, err := ioutil.ReadFile("config.toml")
@@ -41,20 +40,21 @@ func main() {
 	clientID := config.Get("spotify.client_id").(string)
 	clientSecret := config.Get("spotify.client_secret").(string)
 
+	log.Println("clientID: ", clientID)
+
 	sp, err := spotify.NewSpotify(clientID, clientSecret)
 	if err != nil {
 		panic(err)
 	}
 
 	// Get the user's playlists
-	playlists, err := sp.MyPlaylists()
+	playlist, err := sp.PlaylistFromID(*playlistPtr)
 	if err != nil {
 		panic(err)
 	}
 
 	// Print the playlists
-	for _, playlist := range playlists {
-		fmt.Println(playlist.Name)
-	}
+	bytes, _ := json.Marshal(playlist)
+	fmt.Println(string(bytes))
 
 }

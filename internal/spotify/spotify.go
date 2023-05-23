@@ -541,6 +541,8 @@ func (o *Spotify) MyPlaylists() ([]SpotifyPlaylist, error) {
 		return playlists, err
 	}
 
+	log.Println("token", token)
+
 	req.Header.Add("Authorization", "Bearer "+token)
 
 	resp, err := client.Do(req)
