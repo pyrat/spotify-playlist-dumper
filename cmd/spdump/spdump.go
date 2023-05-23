@@ -5,7 +5,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"io/ioutil"
 
@@ -16,15 +15,15 @@ import (
 func main() {
 	// implement the cli here
 	// Define flags
-	userPtr := flag.String("user", "", "User to dump playlists for")
-	playlistPtr := flag.String("playlist", "", "Playlist to dump")
+	// userPtr := flag.String("user", "", "User to dump playlists for")
+	// playlistPtr := flag.String("playlist", "", "Playlist to dump")
 
 	// Parse command line arguments
-	flag.Parse()
+	// flag.Parse()
 
 	// Access parsed values
-	user := *inputPtr
-	playlist := *playlistPtr
+	// user := *userPtr
+	// playlist := *playlistPtr
 
 	// Read the TOML file
 	tomlData, err := ioutil.ReadFile("config.toml")

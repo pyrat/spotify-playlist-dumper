@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/opentracing/opentracing-go/log"
+	"log"
 )
 
 // Spotify is the struct to control spotify api interactions.
@@ -256,7 +256,7 @@ func NewSpotify(clientID string, clientSecret string) (*Spotify, error) {
 	token, err := sp.getToken()
 
 	if err != nil {
-		log.Error("Unable to get token for API access.", err)
+		log.Println("Unable to get token for API access.", err)
 		return nil, err
 	}
 
@@ -283,7 +283,7 @@ func (o *Spotify) refreshSpotifyToken() (string, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest("POST", "https://accounts.spotify.com/api/token", strings.NewReader(body.Encode()))
 	if err != nil {
-		log.Error("net/http error")
+		log.Println("net/http error")
 		return "", err
 	}
 
@@ -292,7 +292,7 @@ func (o *Spotify) refreshSpotifyToken() (string, error) {
 
 	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != 200 {
-		log.Error("Error hitting spotify to refresh token")
+		log.Println("Error hitting spotify to refresh token")
 		return "", errors.New("spotify token error")
 	}
 
@@ -303,7 +303,7 @@ func (o *Spotify) refreshSpotifyToken() (string, error) {
 
 	if spotTokenResp.AccessToken == "" {
 		errmsg := "Problems getting spotify access token from JSON"
-		log.Error(errmsg, spotTokenResp)
+		log.Println(errmsg, spotTokenResp)
 		return "", errors.New(errmsg)
 	}
 
@@ -315,78 +315,54 @@ func (o *Spotify) refreshSpotifyToken() (string, error) {
 // the TrackSearchResult interface.
 func (o *Spotify) Search(query string, market string) (SpotifyTrackSearchResult, error) {
 	searchResult := SpotifyTrackSearchResult{}
-	var cached bool
 
 	if len(market) == 0 {
 		market = "US"
 	}
 
-	respbody, err := o.getSearchResultsFromCache(market + "/" + query)
+	searchURL := "https://api.spotify.com/v1/search"
+	params := url.Values{}
+	params.Add("q", query)
+	params.Add("type", "track,album,playlist")
+	params.Add("market", market)
+	params.Add("limit", "50")
+
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", searchURL+"?"+params.Encode(), nil)
 	if err != nil {
+		log.Println("net/http error")
 		return searchResult, err
 	}
 
-	// Hit Spotify if there was a cache miss.
-	if len(respbody) == 0 {
-		searchURL := "https://api.spotify.com/v1/search"
-		params := url.Values{}
-		params.Add("q", query)
-		params.Add("type", "track,album,playlist")
-		params.Add("market", market)
-		params.Add("limit", "50")
+	// Always get the token before making the request
+	// to avoid making a request with an expired token.
+	token, err := o.getToken()
+	if err != nil {
+		log.Println("error getting token")
+		return searchResult, err
+	}
 
-		client := &http.Client{}
-		req, err := http.NewRequest("GET", searchURL+"?"+params.Encode(), nil)
-		if err != nil {
-			log.Error("net/http error")
-			return searchResult, err
-		}
+	req.Header.Add("Authorization", "Bearer "+token)
 
-		// Always get the token before making the request
-		// to avoid making a request with an expired token.
-		token, err := o.getToken()
-		if err != nil {
-			log.Error("error getting token")
-			return searchResult, err
-		}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Println("Error making call to spotify error:", err)
+		return searchResult, errors.New("error making call to spotify")
+	}
 
-		req.Header.Add("Authorization", "Bearer "+token)
+	defer resp.Body.Close()
+	respbody, _ := ioutil.ReadAll(resp.Body)
 
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Error("Error making call to spotify error:", err)
-			return searchResult, errors.New("error making call to spotify")
-		}
-
-		defer resp.Body.Close()
-		respbody, _ = ioutil.ReadAll(resp.Body)
-
-		if resp.StatusCode != 200 {
-			log.Error("Error making call to spotify", string(respbody[:]))
-			return searchResult, errors.New("error making call to spotify")
-		}
-
-		// store raw results in the cache
-		err = o.Cache.Set("spotify:search:"+market+"/"+query, respbody, 7*24*time.Hour).Err()
-		if err != nil {
-			log.Error("Error caching spotify search result.")
-			return searchResult, err
-		}
-	} else {
-		// set cached to true. dont generally like flags but easy in this case.
-		cached = true
+	if resp.StatusCode != 200 {
+		log.Println("Error making call to spotify", string(respbody[:]))
+		return searchResult, errors.New("error making call to spotify")
 	}
 
 	err = json.Unmarshal(respbody, &searchResult)
 
 	if err != nil {
-		log.Error("Invalid JSON response from Spotify", err)
+		log.Println("Invalid JSON response from Spotify", err)
 		return searchResult, err
-	}
-
-	if cached == true {
-		// Let the client know it is a cached result.
-		searchResult.Cached = true
 	}
 
 	// All is well.
@@ -405,7 +381,7 @@ func (o *Spotify) TrackFromID(ID string) (SpotifyTrack, error) {
 
 	req, err := http.NewRequest("GET", trackURL, nil)
 	if err != nil {
-		log.Error("net/http error")
+		log.Println("net/http error")
 		return st, err
 	}
 
@@ -413,7 +389,7 @@ func (o *Spotify) TrackFromID(ID string) (SpotifyTrack, error) {
 	// to avoid making a request with an expired token.
 	token, err := o.getToken()
 	if err != nil {
-		log.Error("error getting token")
+		log.Println("error getting token")
 		return st, err
 	}
 
@@ -421,7 +397,7 @@ func (o *Spotify) TrackFromID(ID string) (SpotifyTrack, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Error("Error making call to spotify error:", err)
+		log.Println("Error making call to spotify error:", err)
 		return st, fmt.Errorf("error making call to spotify to get track information : %s", ID)
 	}
 
@@ -429,7 +405,7 @@ func (o *Spotify) TrackFromID(ID string) (SpotifyTrack, error) {
 	body, _ := ioutil.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		log.Error("Error making call to spotify", string(body[:]))
+		log.Println("Error making call to spotify", string(body[:]))
 		return st, fmt.Errorf("error making call to spotify to get track information : %s", ID)
 	}
 
@@ -437,7 +413,7 @@ func (o *Spotify) TrackFromID(ID string) (SpotifyTrack, error) {
 	// translate to a music track also required
 	err = json.Unmarshal(body, &st)
 	if err != nil {
-		log.Error("Invalid JSON response from Spotify", err)
+		log.Println("Invalid JSON response from Spotify", err)
 		return st, err
 	}
 
@@ -455,7 +431,7 @@ func (o *Spotify) AlbumFromID(ID string) (SpotifyAlbum, error) {
 	}
 	req, err := http.NewRequest("GET", trackURL, nil)
 	if err != nil {
-		log.Error("net/http error")
+		log.Println("net/http error")
 		return album, err
 	}
 
@@ -463,7 +439,7 @@ func (o *Spotify) AlbumFromID(ID string) (SpotifyAlbum, error) {
 	// to avoid making a request with an expired token.
 	token, err := o.getToken()
 	if err != nil {
-		log.Error("error getting token")
+		log.Println("error getting token")
 		return album, err
 	}
 
@@ -471,7 +447,7 @@ func (o *Spotify) AlbumFromID(ID string) (SpotifyAlbum, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Error("Error making call to spotify error:", err)
+		log.Println("Error making call to spotify error:", err)
 		return album, errors.New("error making call to spotify to get album information")
 	}
 
@@ -479,14 +455,14 @@ func (o *Spotify) AlbumFromID(ID string) (SpotifyAlbum, error) {
 	body, _ := ioutil.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		log.Error("Error making call to spotify", string(body[:]))
+		log.Println("Error making call to spotify", string(body[:]))
 		return album, errors.New("error making call to spotify to get album information")
 	}
 
 	// load the response into the required object,
 	err = json.Unmarshal(body, &album)
 	if err != nil {
-		log.Error("Invalid JSON response from Spotify", err)
+		log.Println("Invalid JSON response from Spotify", err)
 		return album, err
 	}
 
@@ -504,7 +480,7 @@ func (o *Spotify) PlaylistFromID(ID string) (SpotifyPlaylist, error) {
 	}
 	req, err := http.NewRequest("GET", trackURL, nil)
 	if err != nil {
-		log.Error("net/http error")
+		log.Println("net/http error")
 		return playlist, err
 	}
 
@@ -512,7 +488,7 @@ func (o *Spotify) PlaylistFromID(ID string) (SpotifyPlaylist, error) {
 	// to avoid making a request with an expired token.
 	token, err := o.getToken()
 	if err != nil {
-		log.Error("error getting token")
+		log.Println("error getting token")
 		return playlist, err
 	}
 
@@ -520,7 +496,7 @@ func (o *Spotify) PlaylistFromID(ID string) (SpotifyPlaylist, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Error("Error making call to spotify error:", err)
+		log.Println("Error making call to spotify error:", err)
 		return playlist, errors.New("error making call to spotify to get album information")
 	}
 
@@ -528,14 +504,14 @@ func (o *Spotify) PlaylistFromID(ID string) (SpotifyPlaylist, error) {
 	body, _ := ioutil.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		log.Error("Error making call to spotify", string(body[:]))
+		log.Println("Error making call to spotify", string(body[:]))
 		return playlist, errors.New("error making call to spotify to get album information")
 	}
 
 	// load the response into the required object,
 	err = json.Unmarshal(body, &playlist)
 	if err != nil {
-		log.Error("Invalid JSON response from Spotify", err)
+		log.Println("Invalid JSON response from Spotify", err)
 		return playlist, err
 	}
 
@@ -553,15 +529,15 @@ func (o *Spotify) MyPlaylists() ([]SpotifyPlaylist, error) {
 	}
 	req, err := http.NewRequest("GET", myPlaylistsURL, nil)
 	if err != nil {
-		log.Error("net/http error")
-		return playlist, err
+		log.Println("net/http error")
+		return playlists, err
 	}
 
 	// Always get the token before making the request
 	// to avoid making a request with an expired token.
 	token, err := o.getToken()
 	if err != nil {
-		log.Error("error getting token")
+		log.Println("error getting token")
 		return playlists, err
 	}
 
@@ -569,7 +545,7 @@ func (o *Spotify) MyPlaylists() ([]SpotifyPlaylist, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Error("Error making call to spotify error:", err)
+		log.Println("Error making call to spotify error:", err)
 		return playlists, errors.New("error making call to spotify to get my playlists")
 	}
 
@@ -577,14 +553,14 @@ func (o *Spotify) MyPlaylists() ([]SpotifyPlaylist, error) {
 	body, _ := ioutil.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		log.Error("Error making call to spotify", string(body[:]))
+		log.Println("Error making call to spotify", string(body[:]))
 		return playlists, errors.New("error making call to spotify to get my playlists")
 	}
 
 	// load the response into the required object,
 	err = json.Unmarshal(body, &playlists)
 	if err != nil {
-		log.Error("Invalid JSON response from Spotify", err)
+		log.Println("Invalid JSON response from Spotify", err)
 		return playlists, err
 	}
 
