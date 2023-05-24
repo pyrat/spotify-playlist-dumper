@@ -53,8 +53,10 @@ func main() {
 		panic(err)
 	}
 
-	// Print the playlists
-	bytes, _ := json.Marshal(playlist)
+	mp := spotify.ConvertToMusicPlaylist(playlist)
+
+	// Print the playlist
+	bytes, _ := json.Marshal(mp)
 	fmt.Println(string(bytes))
 
 }

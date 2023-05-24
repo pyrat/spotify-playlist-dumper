@@ -24,18 +24,6 @@ type spotifyTokenResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-// SpotifyTrackSearchResult Struct for storing API search response.
-type SpotifyTrackSearchResult struct {
-	ResultCollection   SpotifyTracksResult    `json:"tracks"`
-	AlbumCollection    SpotifyAlbumsResult    `json:"albums"`
-	PlaylistCollection SpotifyPlaylistsResult `json:"playlists"`
-}
-
-// SpotifyTracksResult is just a container struct.
-type SpotifyTracksResult struct {
-	Items []SpotifyTrack `json:"items"`
-}
-
 // SpotifyPlaylistTracks is a container struct for playlist tracks parsing.
 type SpotifyPlaylistTracks struct {
 	Items []SpotifyPlaylistTrack `json:"items"`
@@ -140,13 +128,6 @@ type SpotifyArtist struct {
 	IntegrationID string `json:"id"`
 }
 
-// MusicSearchResult is a generic struct
-type MusicSearchResult struct {
-	Tracks    []MusicTrack
-	Albums    []MusicAlbum
-	Playlists []MusicPlaylist
-}
-
 // MusicTrack stores the spotify result in a format which can be easily Marshaled.
 type MusicTrack struct {
 	Name             string
@@ -157,7 +138,7 @@ type MusicTrack struct {
 	IntegrationID    string
 	Source           string
 	ExternalURL      string
-	Artists          []MusicArtist `json:",omitempty"`
+	Artists          string
 }
 
 // MusicAlbum stores details of Albums for further browsing.
@@ -182,68 +163,6 @@ type MusicPlaylist struct {
 type MusicArtist struct {
 	Name          string
 	IntegrationID string
-}
-
-// NewMusicSearchResultFromSpotify converts a spotify result to music search result
-func NewMusicSearchResultFromSpotify(spotifyResult SpotifyTrackSearchResult) *MusicSearchResult {
-	msr := &MusicSearchResult{}
-
-	for _, track := range spotifyResult.ResultCollection.Items {
-		mt := MusicTrack{
-			Name:             track.Name,
-			PreviewURL:       track.PreviewURL,
-			AlbumName:        track.Album.Name,
-			AlbumArt:         track.Album.Images,
-			AlbumReleaseDate: track.Album.ReleaseDate,
-			IntegrationID:    track.IntegrationID,
-			Source:           "spotify",
-			ExternalURL:      track.ExternalURL.Spotify,
-		}
-
-		for _, artist := range track.Album.Artists {
-			a := MusicArtist{
-				Name:          artist.Name,
-				IntegrationID: artist.IntegrationID,
-			}
-			mt.Artists = append(mt.Artists, a)
-		}
-		msr.Tracks = append(msr.Tracks, mt)
-	}
-
-	// Add albums and artists of that album.
-	for _, album := range spotifyResult.AlbumCollection.Items {
-
-		ma := MusicAlbum{
-			Name:          album.Name,
-			AlbumArt:      album.Images,
-			ReleaseDate:   album.ReleaseDate,
-			IntegrationID: album.IntegrationID,
-		}
-
-		for _, artist := range album.Artists {
-			a := MusicArtist{
-				Name:          artist.Name,
-				IntegrationID: artist.IntegrationID,
-			}
-			ma.Artists = append(ma.Artists, a)
-		}
-		// need to add artists in a loop here.
-		// wondering whether to add
-		msr.Albums = append(msr.Albums, ma)
-	}
-
-	// Add playlists.
-	for _, playlist := range spotifyResult.PlaylistCollection.Items {
-
-		mp := MusicPlaylist{
-			Name:          playlist.Name,
-			PlaylistArt:   playlist.Images,
-			IntegrationID: playlist.IntegrationID,
-		}
-		msr.Playlists = append(msr.Playlists, mp)
-	}
-
-	return msr
 }
 
 // NewSpotify initialises a Spotify API struct. This requests a access token if
@@ -299,7 +218,7 @@ func (o *Spotify) refreshSpotifyToken() (string, error) {
 	defer resp.Body.Close()
 	respbody, _ := ioutil.ReadAll(resp.Body)
 	spotTokenResp := spotifyTokenResponse{}
-	err = json.Unmarshal(respbody, &spotTokenResp)
+	json.Unmarshal(respbody, &spotTokenResp)
 
 	if spotTokenResp.AccessToken == "" {
 		errmsg := "Problems getting spotify access token from JSON"
@@ -309,64 +228,6 @@ func (o *Spotify) refreshSpotifyToken() (string, error) {
 
 	o.Token = spotTokenResp.AccessToken
 	return spotTokenResp.AccessToken, nil
-}
-
-// Search makes a call to the Spotify search endpoint returning a struct which implements
-// the TrackSearchResult interface.
-func (o *Spotify) Search(query string, market string) (SpotifyTrackSearchResult, error) {
-	searchResult := SpotifyTrackSearchResult{}
-
-	if len(market) == 0 {
-		market = "US"
-	}
-
-	searchURL := "https://api.spotify.com/v1/search"
-	params := url.Values{}
-	params.Add("q", query)
-	params.Add("type", "track,album,playlist")
-	params.Add("market", market)
-	params.Add("limit", "50")
-
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", searchURL+"?"+params.Encode(), nil)
-	if err != nil {
-		log.Println("net/http error")
-		return searchResult, err
-	}
-
-	// Always get the token before making the request
-	// to avoid making a request with an expired token.
-	token, err := o.getToken()
-	if err != nil {
-		log.Println("error getting token")
-		return searchResult, err
-	}
-
-	req.Header.Add("Authorization", "Bearer "+token)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Println("Error making call to spotify error:", err)
-		return searchResult, errors.New("error making call to spotify")
-	}
-
-	defer resp.Body.Close()
-	respbody, _ := ioutil.ReadAll(resp.Body)
-
-	if resp.StatusCode != 200 {
-		log.Println("Error making call to spotify", string(respbody[:]))
-		return searchResult, errors.New("error making call to spotify")
-	}
-
-	err = json.Unmarshal(respbody, &searchResult)
-
-	if err != nil {
-		log.Println("Invalid JSON response from Spotify", err)
-		return searchResult, err
-	}
-
-	// All is well.
-	return searchResult, nil
 }
 
 // TrackFromID hits the Spotify API to get Track information.
@@ -497,7 +358,7 @@ func (o *Spotify) PlaylistFromID(ID string) (SpotifyPlaylist, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Println("Error making call to spotify error:", err)
-		return playlist, errors.New("error making call to spotify to get album information")
+		return playlist, errors.New("error making call to spotify to get playlist information")
 	}
 
 	defer resp.Body.Close()
@@ -505,7 +366,7 @@ func (o *Spotify) PlaylistFromID(ID string) (SpotifyPlaylist, error) {
 
 	if resp.StatusCode != 200 {
 		log.Println("Error making call to spotify", string(body[:]))
-		return playlist, errors.New("error making call to spotify to get album information")
+		return playlist, errors.New("error making call to spotify to get playlist information")
 	}
 
 	// load the response into the required object,
@@ -516,87 +377,6 @@ func (o *Spotify) PlaylistFromID(ID string) (SpotifyPlaylist, error) {
 	}
 
 	return playlist, nil
-}
-
-// MyPlaylists hits the Spotify API to get the current user's playlists.
-func (o *Spotify) MyPlaylists() ([]SpotifyPlaylist, error) {
-	playlists := []SpotifyPlaylist{}
-
-	myPlaylistsURL := "https://api.spotify.com/v1/me/playlists/"
-
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-	}
-	req, err := http.NewRequest("GET", myPlaylistsURL, nil)
-	if err != nil {
-		log.Println("net/http error")
-		return playlists, err
-	}
-
-	// Always get the token before making the request
-	// to avoid making a request with an expired token.
-	token, err := o.getToken()
-	if err != nil {
-		log.Println("error getting token")
-		return playlists, err
-	}
-
-	log.Println("token", token)
-
-	req.Header.Add("Authorization", "Bearer "+token)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Println("Error making call to spotify error:", err)
-		return playlists, errors.New("error making call to spotify to get my playlists")
-	}
-
-	defer resp.Body.Close()
-	body, _ := ioutil.ReadAll(resp.Body)
-
-	if resp.StatusCode != 200 {
-		log.Println("Error making call to spotify", string(body[:]))
-		return playlists, errors.New("error making call to spotify to get my playlists")
-	}
-
-	// load the response into the required object,
-	err = json.Unmarshal(body, &playlists)
-	if err != nil {
-		log.Println("Invalid JSON response from Spotify", err)
-		return playlists, err
-	}
-
-	return playlists, nil
-
-}
-
-// ConvertToMusicAlbum converts a SpotifyAlbum struct to a MusicAlbum struct
-func ConvertToMusicAlbum(sa SpotifyAlbum) MusicAlbum {
-	ma := MusicAlbum{
-		Name:          sa.Name,
-		IntegrationID: sa.IntegrationID,
-		AlbumArt:      sa.Images,
-		ReleaseDate:   sa.ReleaseDate,
-	}
-
-	ma.Artists = []MusicArtist{}
-
-	for _, artist := range sa.Artists {
-		musicArtist := MusicArtist{
-			Name:          artist.Name,
-			IntegrationID: artist.IntegrationID,
-		}
-		ma.Artists = append(ma.Artists, musicArtist)
-	}
-
-	if len(sa.TracksCollection.Items) > 0 {
-		for _, track := range sa.TracksCollection.Items {
-			track.Album = sa
-			ma.Tracks = append(ma.Tracks, ConvertToMusicTrack(track))
-		}
-	}
-
-	return ma
 }
 
 // ConvertToMusicPlaylist converts a SpotifyPlaylist struct to a MusicPlaylist struct
@@ -628,15 +408,19 @@ func ConvertToMusicTrack(st SpotifyTrack) MusicTrack {
 		Source:           "spotify",
 		ExternalURL:      st.ExternalURL.Spotify,
 	}
-	musicTrack.Artists = []MusicArtist{}
+
+	var artistNames []string
 
 	for _, artist := range st.Artists {
-		musicArtist := MusicArtist{
-			Name:          artist.Name,
-			IntegrationID: artist.IntegrationID,
-		}
-		musicTrack.Artists = append(musicTrack.Artists, musicArtist)
+		artistNames = append(artistNames, artist.Name)
 	}
 
+	musicTrack.Artists = strings.Join(artistNames, ", ")
+
 	return musicTrack
+}
+
+// SpotifyTracksResult is just a container struct.
+type SpotifyTracksResult struct {
+	Items []SpotifyTrack `json:"items"`
 }
